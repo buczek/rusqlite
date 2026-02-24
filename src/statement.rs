@@ -6,21 +6,19 @@ use std::{fmt, mem, ptr, str};
 
 use super::ffi;
 use super::str_for_sqlite;
-use super::{
-    AndThenRows, Connection, Error, MappedRows, Params, RawStatement, Result, Row, Rows, ValueRef,
-};
+use super::{AndThenRows, Error, MappedRows, Params, RawStatement, Result, Row, Rows, ValueRef};
 use crate::bind::BindIndex;
+use crate::error::decode_result_raw;
 use crate::types::{ToSql, ToSqlOutput};
 #[cfg(feature = "array")]
 use crate::vtab::array::{free_array, ARRAY_TYPE};
 
 /// A prepared statement.
-pub struct Statement<'conn> {
-    pub(crate) conn: &'conn Connection,
+pub struct Statement {
     pub(crate) stmt: RawStatement,
 }
 
-impl Statement<'_> {
+impl Statement {
     /// Execute the prepared statement.
     ///
     /// On success, returns the number of rows that were changed or inserted or
@@ -131,7 +129,7 @@ impl Statement<'_> {
     pub fn insert<P: Params>(&mut self, params: P) -> Result<i64> {
         let changes = self.execute(params)?;
         match changes {
-            1 => Ok(self.conn.last_insert_rowid()),
+            1 => Ok(unsafe { ffi::sqlite3_last_insert_rowid(self.stmt.db_ptr()) as i64 }),
             _ => Err(Error::StatementChangedRows(changes)),
         }
     }
@@ -418,7 +416,9 @@ impl Statement<'_> {
     /// Will return `Err` if the underlying SQLite call fails.
     #[inline]
     pub fn finalize(mut self) -> Result<()> {
-        self.finalize_()
+        let db = self.stmt.db_ptr();
+        let code = self.finalize_();
+        unsafe { decode_result_raw(db, code) }
     }
 
     /// Return the (one-based) index of an SQL parameter given its name.
@@ -627,7 +627,6 @@ impl Statement<'_> {
             ToSqlOutput::ZeroBlob(len) => {
                 // TODO sqlite3_bind_zeroblob64 // 3.8.11
                 return self
-                    .conn
                     .decode_result(unsafe { ffi::sqlite3_bind_zeroblob(ptr, ndx as c_int, len) });
             }
             #[cfg(feature = "functions")]
@@ -636,7 +635,7 @@ impl Statement<'_> {
             }
             #[cfg(feature = "array")]
             ToSqlOutput::Array(a) => {
-                return self.conn.decode_result(unsafe {
+                return self.decode_result(unsafe {
                     ffi::sqlite3_bind_pointer(
                         ptr,
                         ndx as c_int,
@@ -647,7 +646,7 @@ impl Statement<'_> {
                 });
             }
         };
-        self.conn.decode_result(match value {
+        self.decode_result(match value {
             ValueRef::Null => unsafe { ffi::sqlite3_bind_null(ptr, ndx as c_int) },
             ValueRef::Integer(i) => unsafe { ffi::sqlite3_bind_int64(ptr, ndx as c_int, i) },
             ValueRef::Real(r) => unsafe { ffi::sqlite3_bind_double(ptr, ndx as c_int, r) },
@@ -686,19 +685,29 @@ impl Statement<'_> {
         let rr = self.stmt.reset();
         match r {
             ffi::SQLITE_DONE => match rr {
-                ffi::SQLITE_OK => Ok(self.conn.changes() as usize),
-                _ => Err(self.conn.decode_result(rr).unwrap_err()),
+                ffi::SQLITE_OK => Ok(unsafe {
+                    let db = ffi::sqlite3_db_handle(self.stmt.ptr());
+                    #[cfg(not(feature = "modern_sqlite"))]
+                    {
+                        ffi::sqlite3_changes(db) as u64
+                    }
+                    #[cfg(feature = "modern_sqlite")] // 3.37.0
+                    {
+                        ffi::sqlite3_changes64(db) as u64
+                    }
+                } as usize),
+                _ => Err(self.decode_result(rr).unwrap_err()),
             },
             ffi::SQLITE_ROW => Err(Error::ExecuteReturnedResults),
-            _ => Err(self.conn.decode_result(r).unwrap_err()),
+            _ => Err(self.decode_result(r).unwrap_err()),
         }
     }
 
     #[inline]
-    fn finalize_(&mut self) -> Result<()> {
+    fn finalize_(&mut self) -> c_int {
         let mut stmt = unsafe { RawStatement::new(ptr::null_mut()) };
         mem::swap(&mut stmt, &mut self.stmt);
-        self.conn.decode_result(stmt.finalize())
+        stmt.finalize()
     }
 
     #[cfg(feature = "extra_check")]
@@ -771,9 +780,13 @@ impl Statement<'_> {
     pub(crate) unsafe fn ptr(&self) -> *mut ffi::sqlite3_stmt {
         self.stmt.ptr()
     }
+
+    pub(crate) fn decode_result(&self, code: c_int) -> Result<()> {
+        self.stmt.decode_result(code)
+    }
 }
 
-impl fmt::Debug for Statement<'_> {
+impl fmt::Debug for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let sql = if self.stmt.is_null() {
             Ok("")
@@ -781,25 +794,23 @@ impl fmt::Debug for Statement<'_> {
             self.stmt.sql().unwrap().to_str()
         };
         f.debug_struct("Statement")
-            .field("conn", self.conn)
             .field("stmt", &self.stmt)
             .field("sql", &sql)
             .finish()
     }
 }
 
-impl Drop for Statement<'_> {
-    #[expect(unused_must_use)]
+impl Drop for Statement {
     #[inline]
     fn drop(&mut self) {
         self.finalize_();
     }
 }
 
-impl Statement<'_> {
+impl Statement {
     #[inline]
-    pub(super) fn new(conn: &Connection, stmt: RawStatement) -> Statement<'_> {
-        Statement { conn, stmt }
+    pub(super) fn new(stmt: RawStatement) -> Statement {
+        Statement { stmt }
     }
 
     pub(super) fn value_ref(&self, col: usize) -> ValueRef<'_> {
@@ -863,7 +874,7 @@ impl Statement<'_> {
         match self.stmt.step() {
             ffi::SQLITE_ROW => Ok(true),
             ffi::SQLITE_DONE => Ok(false),
-            code => Err(self.conn.decode_result(code).unwrap_err()),
+            code => Err(self.decode_result(code).unwrap_err()),
         }
     }
 
@@ -871,7 +882,7 @@ impl Statement<'_> {
     pub(super) fn reset(&self) -> Result<()> {
         match self.stmt.reset() {
             ffi::SQLITE_OK => Ok(()),
-            code => Err(self.conn.decode_result(code).unwrap_err()),
+            code => Err(self.decode_result(code).unwrap_err()),
         }
     }
 }

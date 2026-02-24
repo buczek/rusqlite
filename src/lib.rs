@@ -539,10 +539,7 @@ impl Connection {
     pub fn execute_batch(&self, sql: &str) -> Result<()> {
         let mut sql = sql;
         while !sql.is_empty() {
-            let (stmt, tail) = self
-                .db
-                .borrow_mut()
-                .prepare(self, sql, PrepFlags::default())?;
+            let (stmt, tail) = self.db.borrow_mut().prepare(sql, PrepFlags::default())?;
             if !stmt.stmt.is_null() && stmt.step()? {
                 // Some PRAGMA may return rows
                 if false {
@@ -769,7 +766,7 @@ impl Connection {
     /// Will return `Err` if `sql` cannot be converted to a C-compatible string
     /// or if the underlying SQLite call fails.
     #[inline]
-    pub fn prepare(&self, sql: &str) -> Result<Statement<'_>> {
+    pub fn prepare(&self, sql: &str) -> Result<Statement> {
         self.prepare_with_flags(sql, PrepFlags::default())
     }
 
@@ -780,8 +777,8 @@ impl Connection {
     /// Will return `Err` if `sql` cannot be converted to a C-compatible string
     /// or if the underlying SQLite call fails.
     #[inline]
-    pub fn prepare_with_flags(&self, sql: &str, flags: PrepFlags) -> Result<Statement<'_>> {
-        let (stmt, tail) = self.db.borrow_mut().prepare(self, sql, flags)?;
+    pub fn prepare_with_flags(&self, sql: &str, flags: PrepFlags) -> Result<Statement> {
+        let (stmt, tail) = self.db.borrow_mut().prepare(sql, flags)?;
         if tail != 0 && !self.prepare(&sql[tail..])?.stmt.is_null() {
             Err(Error::MultipleStatement)
         } else {
@@ -1138,20 +1135,20 @@ impl<'conn, 'sql> Batch<'conn, 'sql> {
     }
 }
 impl<'conn> fallible_iterator::FallibleIterator for Batch<'conn, '_> {
-    type Item = Statement<'conn>;
+    type Item = Statement;
     type Error = Error;
 
     /// Iterates on each batch statements.
     ///
     /// Returns `Ok(None)` when batch is completed.
-    fn next(&mut self) -> Result<Option<Statement<'conn>>> {
+    fn next(&mut self) -> Result<Option<Statement>> {
         while self.tail < self.sql.len() {
             let sql = &self.sql[self.tail..];
-            let (next, tail) =
-                self.conn
-                    .db
-                    .borrow_mut()
-                    .prepare(self.conn, sql, PrepFlags::default())?;
+            let (next, tail) = self
+                .conn
+                .db
+                .borrow_mut()
+                .prepare(sql, PrepFlags::default())?;
             if tail == 0 {
                 self.tail = self.sql.len();
             } else {

@@ -71,7 +71,7 @@ impl ColumnMetadata<'_> {
     }
 }
 
-impl Statement<'_> {
+impl Statement {
     /// Get all the column names in the result set of the prepared statement.
     ///
     /// If associated DB schema can be altered concurrently, you should make

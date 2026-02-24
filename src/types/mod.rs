@@ -395,10 +395,10 @@ mod test {
         // SQLite actually ignores the column types, so we just need to test
         // different numeric values.
 
-        struct DbEtc<'conn> {
-            insert_statement: Statement<'conn>,
-            query_statement: Statement<'conn>,
-            delete_statement: Statement<'conn>,
+        struct DbEtc {
+            insert_statement: Statement,
+            query_statement: Statement,
+            delete_statement: Statement,
         }
 
         let mut db_etc = DbEtc {

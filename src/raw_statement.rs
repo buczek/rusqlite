@@ -1,5 +1,6 @@
 use super::ffi;
-use super::StatementStatus;
+use super::{Result, StatementStatus};
+use crate::error::decode_result_raw;
 use crate::util::ParamIndexCache;
 use crate::util::SqliteMallocString;
 use std::ffi::{c_int, CStr};
@@ -58,6 +59,14 @@ impl RawStatement {
     #[inline]
     pub unsafe fn ptr(&self) -> *mut ffi::sqlite3_stmt {
         self.ptr
+    }
+
+    pub fn db_ptr(&self) -> *mut ffi::sqlite3 {
+        unsafe { ffi::sqlite3_db_handle(self.ptr) }
+    }
+
+    pub fn decode_result(&self, code: c_int) -> Result<()> {
+        unsafe { decode_result_raw(self.db_ptr(), code) }
     }
 
     #[inline]

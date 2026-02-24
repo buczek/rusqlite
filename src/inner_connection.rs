@@ -6,7 +6,7 @@ use std::str;
 use std::sync::{Arc, Mutex};
 
 use super::ffi;
-use super::{Connection, InterruptHandle, Name, OpenFlags, PrepFlags, Result};
+use super::{InterruptHandle, Name, OpenFlags, PrepFlags, Result};
 use crate::error::{decode_result_raw, error_from_handle, error_with_offset, Error};
 use crate::raw_statement::RawStatement;
 use crate::statement::Statement;
@@ -205,12 +205,7 @@ impl InnerConnection {
         unsafe { ffi::sqlite3_last_insert_rowid(self.db()) }
     }
 
-    pub fn prepare<'a>(
-        &mut self,
-        conn: &'a Connection,
-        sql: &str,
-        flags: PrepFlags,
-    ) -> Result<(Statement<'a>, usize)> {
+    pub fn prepare(&mut self, sql: &str, flags: PrepFlags) -> Result<(Statement, usize)> {
         let mut c_stmt: *mut ffi::sqlite3_stmt = ptr::null_mut();
         let Ok(len) = c_int::try_from(sql.len()) else {
             return Err(err!(ffi::SQLITE_TOOBIG));
@@ -267,10 +262,7 @@ impl InnerConnection {
                 n as usize
             }
         };
-        Ok((
-            Statement::new(conn, unsafe { RawStatement::new(c_stmt) }),
-            tail,
-        ))
+        Ok((Statement::new(unsafe { RawStatement::new(c_stmt) }), tail))
     }
 
     #[inline]

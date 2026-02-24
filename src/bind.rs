@@ -17,19 +17,19 @@ mod sealed {
 pub trait BindIndex: sealed::Sealed {
     /// Returns the index of the associated parameter, or `Error` if no such
     /// parameter exists.
-    fn idx(&self, stmt: &Statement<'_>) -> Result<usize>;
+    fn idx(&self, stmt: &Statement) -> Result<usize>;
 }
 
 impl BindIndex for usize {
     #[inline]
-    fn idx(&self, _: &Statement<'_>) -> Result<usize> {
+    fn idx(&self, _: &Statement) -> Result<usize> {
         // No validation
         Ok(*self)
     }
 }
 
 impl BindIndex for &'_ str {
-    fn idx(&self, stmt: &Statement<'_>) -> Result<usize> {
+    fn idx(&self, stmt: &Statement) -> Result<usize> {
         match stmt.parameter_index(self)? {
             Some(idx) => Ok(idx),
             None => Err(Error::InvalidParameterName(self.to_string())),
@@ -38,7 +38,7 @@ impl BindIndex for &'_ str {
 }
 /// C-string literal to avoid alloc
 impl BindIndex for &CStr {
-    fn idx(&self, stmt: &Statement<'_>) -> Result<usize> {
+    fn idx(&self, stmt: &Statement) -> Result<usize> {
         let r = unsafe { ffi::sqlite3_bind_parameter_index(stmt.ptr(), self.as_ptr()) };
         match r {
             0 => Err(Error::InvalidParameterName(

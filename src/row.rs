@@ -8,7 +8,7 @@ use crate::types::{FromSql, FromSqlError, ValueRef};
 /// A handle (lazy fallible streaming iterator) for the resulting rows of a query.
 #[must_use = "Rows is lazy and will do nothing unless consumed"]
 pub struct Rows<'stmt> {
-    pub(crate) stmt: Option<&'stmt Statement<'stmt>>,
+    pub(crate) stmt: Option<&'stmt Statement>,
     row: Option<Row<'stmt>>,
 }
 
@@ -83,14 +83,14 @@ impl<'stmt> Rows<'stmt> {
 
     /// Give access to the underlying statement
     #[must_use]
-    pub fn as_ref(&self) -> Option<&Statement<'stmt>> {
+    pub fn as_ref(&self) -> Option<&Statement> {
         self.stmt
     }
 }
 
 impl<'stmt> Rows<'stmt> {
     #[inline]
-    pub(crate) fn new(stmt: &'stmt Statement<'stmt>) -> Self {
+    pub(crate) fn new(stmt: &'stmt Statement) -> Self {
         Rows {
             stmt: Some(stmt),
             row: None,
@@ -244,7 +244,7 @@ impl<'stmt> FallibleStreamingIterator for Rows<'stmt> {
 
 /// A single result row of a query.
 pub struct Row<'stmt> {
-    pub(crate) stmt: &'stmt Statement<'stmt>,
+    pub(crate) stmt: &'stmt Statement,
 }
 
 impl Row<'_> {
@@ -346,8 +346,8 @@ impl Row<'_> {
     }
 }
 
-impl<'stmt> AsRef<Statement<'stmt>> for Row<'stmt> {
-    fn as_ref(&self) -> &Statement<'stmt> {
+impl<'stmt> AsRef<Statement> for Row<'stmt> {
+    fn as_ref(&self) -> &Statement {
         self.stmt
     }
 }
@@ -406,12 +406,12 @@ mod sealed {
 pub trait RowIndex: sealed::Sealed {
     /// Returns the index of the appropriate column, or `Error` if no such
     /// column exists.
-    fn idx(&self, stmt: &Statement<'_>) -> Result<usize>;
+    fn idx(&self, stmt: &Statement) -> Result<usize>;
 }
 
 impl RowIndex for usize {
     #[inline]
-    fn idx(&self, stmt: &Statement<'_>) -> Result<usize> {
+    fn idx(&self, stmt: &Statement) -> Result<usize> {
         if *self >= stmt.column_count() {
             Err(Error::InvalidColumnIndex(*self))
         } else {
@@ -422,7 +422,7 @@ impl RowIndex for usize {
 
 impl RowIndex for &'_ str {
     #[inline]
-    fn idx(&self, stmt: &Statement<'_>) -> Result<usize> {
+    fn idx(&self, stmt: &Statement) -> Result<usize> {
         stmt.column_index(self)
     }
 }

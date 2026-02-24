@@ -68,22 +68,22 @@ unsafe impl Send for StatementCache {}
 /// If you want the statement to be discarded, call
 /// [`discard()`](CachedStatement::discard) on it.
 pub struct CachedStatement<'conn> {
-    stmt: Option<Statement<'conn>>,
+    stmt: Option<Statement>,
     cache: &'conn StatementCache,
 }
 
 impl<'conn> Deref for CachedStatement<'conn> {
-    type Target = Statement<'conn>;
+    type Target = Statement;
 
     #[inline]
-    fn deref(&self) -> &Statement<'conn> {
+    fn deref(&self) -> &Statement {
         self.stmt.as_ref().unwrap()
     }
 }
 
 impl<'conn> DerefMut for CachedStatement<'conn> {
     #[inline]
-    fn deref_mut(&mut self) -> &mut Statement<'conn> {
+    fn deref_mut(&mut self) -> &mut Statement {
         self.stmt.as_mut().unwrap()
     }
 }
@@ -99,7 +99,7 @@ impl Drop for CachedStatement<'_> {
 
 impl CachedStatement<'_> {
     #[inline]
-    fn new<'conn>(stmt: Statement<'conn>, cache: &'conn StatementCache) -> CachedStatement<'conn> {
+    fn new<'conn>(stmt: Statement, cache: &'conn StatementCache) -> CachedStatement<'conn> {
         CachedStatement {
             stmt: Some(stmt),
             cache,
@@ -141,7 +141,7 @@ impl StatementCache {
         let trimmed = sql.trim();
         let mut cache = self.0.borrow_mut();
         let stmt = match cache.remove(trimmed) {
-            Some(raw_stmt) => Ok(Statement::new(conn, raw_stmt)),
+            Some(raw_stmt) => Ok(Statement::new(raw_stmt)),
             None => conn.prepare_with_flags(trimmed, PrepFlags::SQLITE_PREPARE_PERSISTENT),
         };
         stmt.map(|mut stmt| {
